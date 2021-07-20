@@ -18,7 +18,14 @@
 //! Note that docs will only build on nightly Rust until
 //! [RFC 1990 stabilizes](https://github.com/rust-lang/rust/issues/44732).
 
-#[cfg(feature = "std")]
+#![cfg_attr(all(feature = "mesalock_sgx", not(target_env = "sgx")), no_std)]
+#![cfg_attr(all(target_env = "sgx", target_vendor = "mesalock"), feature(rustc_private))]
+
+#[cfg(all(feature = "std", not(target_env = "sgx")))]
+#[macro_use]
+extern crate sgx_tstd as std;
+
+#[cfg(all(feature = "std", target_env = "sgx"))]
 #[macro_use]
 extern crate std;
 
@@ -55,7 +62,7 @@ impl Choice {
     /// trait impls.
     ///
     /// **To convert a `Choice` to a `bool`, use the `From` implementation instead.**
-    #[inline]
+
     pub fn unwrap_u8(&self) -> u8 {
         self.0
     }
@@ -75,7 +82,7 @@ impl From<Choice> for bool {
     /// MAC, where the verification should happen in constant-time (and thus use
     /// a `Choice`) but it is safe to return a `bool` at the end of the
     /// verification.
-    #[inline]
+
     fn from(source: Choice) -> bool {
         debug_assert!((source.0 == 0u8) | (source.0 == 1u8));
         source.0 != 0
@@ -84,14 +91,14 @@ impl From<Choice> for bool {
 
 impl BitAnd for Choice {
     type Output = Choice;
-    #[inline]
+
     fn bitand(self, rhs: Choice) -> Choice {
         (self.0 & rhs.0).into()
     }
 }
 
 impl BitAndAssign for Choice {
-    #[inline]
+
     fn bitand_assign(&mut self, rhs: Choice) {
         *self = *self & rhs;
     }
@@ -99,14 +106,14 @@ impl BitAndAssign for Choice {
 
 impl BitOr for Choice {
     type Output = Choice;
-    #[inline]
+
     fn bitor(self, rhs: Choice) -> Choice {
         (self.0 | rhs.0).into()
     }
 }
 
 impl BitOrAssign for Choice {
-    #[inline]
+
     fn bitor_assign(&mut self, rhs: Choice) {
         *self = *self | rhs;
     }
@@ -114,14 +121,14 @@ impl BitOrAssign for Choice {
 
 impl BitXor for Choice {
     type Output = Choice;
-    #[inline]
+
     fn bitxor(self, rhs: Choice) -> Choice {
         (self.0 ^ rhs.0).into()
     }
 }
 
 impl BitXorAssign for Choice {
-    #[inline]
+
     fn bitxor_assign(&mut self, rhs: Choice) {
         *self = *self ^ rhs;
     }
@@ -129,7 +136,7 @@ impl BitXorAssign for Choice {
 
 impl Not for Choice {
     type Output = Choice;
-    #[inline]
+
     fn not(self) -> Choice {
         (1u8 & (!self.0)).into()
     }
@@ -163,7 +170,7 @@ fn black_box(input: u8) -> u8 {
 }
 
 impl From<u8> for Choice {
-    #[inline]
+
     fn from(input: u8) -> Choice {
         // Our goal is to prevent the compiler from inferring that the value held inside the
         // resulting `Choice` struct is really an `i1` instead of an `i8`.
@@ -192,7 +199,7 @@ pub trait ConstantTimeEq {
     ///
     /// * `Choice(1u8)` if `self == other`;
     /// * `Choice(0u8)` if `self != other`.
-    #[inline]
+
     fn ct_eq(&self, other: &Self) -> Choice;
 }
 
@@ -219,7 +226,7 @@ impl<T: ConstantTimeEq> ConstantTimeEq for [T] {
     /// assert_eq!(a_eq_a.unwrap_u8(), 1);
     /// assert_eq!(a_eq_b.unwrap_u8(), 0);
     /// ```
-    #[inline]
+
     fn ct_eq(&self, _rhs: &[T]) -> Choice {
         let len = self.len();
 
@@ -242,7 +249,7 @@ impl<T: ConstantTimeEq> ConstantTimeEq for [T] {
 }
 
 impl ConstantTimeEq for Choice {
-    #[inline]
+
     fn ct_eq(&self, rhs: &Choice) -> Choice {
         !(*self ^ *rhs)
     }
@@ -254,7 +261,7 @@ impl ConstantTimeEq for Choice {
 macro_rules! generate_integer_equal {
     ($t_u:ty, $t_i:ty, $bit_width:expr) => {
         impl ConstantTimeEq for $t_u {
-            #[inline]
+
             fn ct_eq(&self, other: &$t_u) -> Choice {
                 // x == 0 if and only if self == other
                 let x: $t_u = self ^ other;
@@ -268,7 +275,7 @@ macro_rules! generate_integer_equal {
             }
         }
         impl ConstantTimeEq for $t_i {
-            #[inline]
+
             fn ct_eq(&self, other: &$t_i) -> Choice {
                 // Bitcast to unsigned and call that implementation.
                 (*self as $t_u).ct_eq(&(*other as $t_u))
@@ -315,7 +322,7 @@ pub trait ConditionallySelectable: Copy {
     /// assert_eq!(z, y);
     /// # }
     /// ```
-    #[inline]
+
     fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self;
 
     /// Conditionally assign `other` to `self`, according to `choice`.
@@ -338,7 +345,7 @@ pub trait ConditionallySelectable: Copy {
     /// assert_eq!(x, 42);
     /// # }
     /// ```
-    #[inline]
+
     fn conditional_assign(&mut self, other: &Self, choice: Choice) {
         *self = Self::conditional_select(self, other, choice);
     }
@@ -366,7 +373,7 @@ pub trait ConditionallySelectable: Copy {
     /// assert_eq!(y, 13);
     /// # }
     /// ```
-    #[inline]
+
     fn conditional_swap(a: &mut Self, b: &mut Self, choice: Choice) {
         let t: Self = *a;
         a.conditional_assign(&b, choice);
@@ -410,7 +417,7 @@ macro_rules! to_signed_int {
 macro_rules! generate_integer_conditional_select {
     ($($t:tt)*) => ($(
         impl ConditionallySelectable for $t {
-            #[inline]
+
             fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
                 // if choice = 0, mask = (-0) = 0000...0000
                 // if choice = 1, mask = (-1) = 1111...1111
@@ -418,7 +425,7 @@ macro_rules! generate_integer_conditional_select {
                 a ^ (mask & (a ^ b))
             }
 
-            #[inline]
+
             fn conditional_assign(&mut self, other: &Self, choice: Choice) {
                 // if choice = 0, mask = (-0) = 0000...0000
                 // if choice = 1, mask = (-1) = 1111...1111
@@ -426,7 +433,7 @@ macro_rules! generate_integer_conditional_select {
                 *self ^= mask & (*self ^ *other);
             }
 
-            #[inline]
+
             fn conditional_swap(a: &mut Self, b: &mut Self, choice: Choice) {
                 // if choice = 0, mask = (-0) = 0000...0000
                 // if choice = 1, mask = (-1) = 1111...1111
@@ -447,7 +454,7 @@ generate_integer_conditional_select!( u64  i64);
 generate_integer_conditional_select!(u128 i128);
 
 impl ConditionallySelectable for Choice {
-    #[inline]
+
     fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
         Choice(u8::conditional_select(&a.0, &b.0, choice))
     }
@@ -465,7 +472,7 @@ pub trait ConditionallyNegatable {
     /// unchanged.
     ///
     /// This function should execute in constant time.
-    #[inline]
+
     fn conditional_negate(&mut self, choice: Choice);
 }
 
@@ -474,7 +481,7 @@ where
     T: ConditionallySelectable,
     for<'a> &'a T: Neg<Output = T>,
 {
-    #[inline]
+
     fn conditional_negate(&mut self, choice: Choice) {
         // Need to cast to eliminate mutability
         let self_neg: T = -(self as &T);
@@ -532,7 +539,7 @@ impl<T> CtOption<T> {
     /// the optional value should be `Some` or not. If `is_some` is
     /// false, the value will still be stored but its value is never
     /// exposed.
-    #[inline]
+
     pub fn new(value: T, is_some: Choice) -> CtOption<T> {
         CtOption {
             value: value,
@@ -542,7 +549,7 @@ impl<T> CtOption<T> {
 
     /// This returns the underlying value but panics if it
     /// is not `Some`.
-    #[inline]
+
     pub fn unwrap(self) -> T {
         assert_eq!(self.is_some.unwrap_u8(), 1);
 
@@ -551,7 +558,7 @@ impl<T> CtOption<T> {
 
     /// This returns the underlying value if it is `Some`
     /// or the provided value otherwise.
-    #[inline]
+
     pub fn unwrap_or(self, def: T) -> T
     where
         T: ConditionallySelectable,
@@ -561,7 +568,7 @@ impl<T> CtOption<T> {
 
     /// This returns the underlying value if it is `Some`
     /// or the value produced by the provided closure otherwise.
-    #[inline]
+
     pub fn unwrap_or_else<F>(self, f: F) -> T
     where
         T: ConditionallySelectable,
@@ -571,13 +578,13 @@ impl<T> CtOption<T> {
     }
 
     /// Returns a true `Choice` if this value is `Some`.
-    #[inline]
+
     pub fn is_some(&self) -> Choice {
         self.is_some
     }
 
     /// Returns a true `Choice` if this value is `None`.
-    #[inline]
+
     pub fn is_none(&self) -> Choice {
         !self.is_some
     }
@@ -590,7 +597,7 @@ impl<T> CtOption<T> {
     ///
     /// This operates in constant time, because the provided closure
     /// is always called.
-    #[inline]
+
     pub fn map<U, F>(self, f: F) -> CtOption<U>
     where
         T: Default + ConditionallySelectable,
@@ -613,7 +620,7 @@ impl<T> CtOption<T> {
     ///
     /// This operates in constant time, because the provided closure
     /// is always called.
-    #[inline]
+
     pub fn and_then<U, F>(self, f: F) -> CtOption<U>
     where
         T: Default + ConditionallySelectable,
@@ -631,7 +638,7 @@ impl<T> CtOption<T> {
 
     /// Returns `self` if it contains a value, and otherwise returns the result of
     /// calling `f`. The provided function `f` is always called.
-    #[inline]
+
     pub fn or_else<F>(self, f: F) -> CtOption<T>
     where
         T: ConditionallySelectable,
@@ -656,7 +663,7 @@ impl<T: ConditionallySelectable> ConditionallySelectable for CtOption<T> {
 impl<T: ConstantTimeEq> ConstantTimeEq for CtOption<T> {
     /// Two `CtOption<T>`s are equal if they are both `Some` and
     /// their values are equal, or both `None`.
-    #[inline]
+
     fn ct_eq(&self, rhs: &CtOption<T>) -> Choice {
         let a = self.is_some();
         let b = rhs.is_some();
