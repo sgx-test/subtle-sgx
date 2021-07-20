@@ -18,9 +18,16 @@
 //! Note that docs will only build on nightly Rust until
 //! [RFC 1990 stabilizes](https://github.com/rust-lang/rust/issues/44732).
 
-#[cfg(feature = "std")]
+#![cfg_attr(all(feature = "mesalock_sgx", not(target_env = "sgx")), no_std)]
+#![cfg_attr(all(target_env = "sgx", target_vendor = "mesalock"), feature(rustc_private))]
+
+#[cfg(all(feature = "std", target_env = "sgx"))]
 #[macro_use]
 extern crate std;
+
+#[cfg(all(feature = "std", not(target_env = "sgx")))]
+#[macro_use]
+extern crate sgx_tstd as std;
 
 use core::ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Neg, Not};
 
